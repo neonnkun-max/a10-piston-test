@@ -1,0 +1,171 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<title>A10 Piston SA Bluetooth Test</title>
+<style>
+  body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;margin:0;padding:20px;background:#f5f5f7;color:#111}
+  .card{max-width:640px;margin:auto;background:white;border-radius:18px;padding:20px;box-shadow:0 2px 12px #0001}
+  h1{font-size:22px;margin-top:0}
+  button{font-size:17px;padding:14px 18px;margin:6px 4px;border:0;border-radius:12px;background:#ddd}
+  button.primary{background:#111;color:#fff}
+  button:disabled{opacity:.45}
+  .row{display:flex;flex-wrap:wrap;gap:6px}
+  #status{padding:12px;border-radius:10px;background:#eee;margin:12px 0;white-space:pre-wrap}
+  #log{height:180px;overflow:auto;background:#111;color:#0f0;padding:10px;border-radius:10px;font:12px monospace}
+  .note{font-size:13px;line-height:1.5;color:#555}
+</style>
+</head>
+<body>
+<div class="card">
+<h1>A10 Piston SA Bluetooth 接続テスト</h1>
+<p class="note">BluefyなどWeb Bluetooth対応ブラウザ向けの試験用ページです。まず接続を試し、認識できたCharacteristicを表示します。機種によって通信仕様が異なるため、初期状態では自動的に動作コマンドを送信しません。</p>
+
+<div id="status">状態：未接続</div>
+
+<button id="connect" class="primary">Bluetooth接続</button>
+<button id="disconnect" disabled>切断</button>
+
+<h2>手動操作（試験）</h2>
+<div class="row">
+  <button data-cmd="stop" disabled>停止</button>
+  <button data-cmd="up" disabled>上方向</button>
+  <button data-cmd="down" disabled>下方向</button>
+</div>
+
+<h2>ログ</h2>
+<pre id="log"></pre>
+
+<p class="note">
+注意：A10 Piston SAの正確なBluetoothサービスUUID・Characteristic UUID・コマンド形式が機種/ファームウェアごとに異なる可能性があります。
+このページはまず「Bluetooth機器として発見・接続できるか」を確認する目的で作成しています。
+</p>
+</div>
+
+<script>
+/*
+  Web Bluetooth connection test scaffold.
+  We intentionally do not guess/write unknown A10 Piston SA command bytes.
+  Once the correct UUID and command protocol are confirmed, the sendCommand()
+  function can be filled in safely.
+*/
+
+const SERVICE_UUID_CANDIDATES = [
+  "40ee1111-63ec-4b7f-8ce8-cf7e2f5c8e1a"
+];
+
+let device = null;
+let server = null;
+let writable = null;
+
+const $ = id => document.getElementById(id);
+const log = msg => {
+  const t = new Date().toLocaleTimeString();
+  $("log").textContent += `[${t}] ${msg}\n`;
+  $("log").scrollTop = $("log").scrollHeight;
+};
+const status = msg => $("status").textContent = "状態：" + msg;
+const controls = on => document.querySelectorAll("[data-cmd]").forEach(b => b.disabled = !on);
+
+async function connect() {
+  if (!navigator.bluetooth) {
+    status("このブラウザはWeb Bluetoothに対応していません");
+    log("navigator.bluetooth がありません");
+    return;
+  }
+
+  try {
+    status("機器を選択してください…");
+    log("Bluetooth機器の選択を開始");
+
+    // Accept all devices so the user can see the A10 device if it advertises normally.
+    device = await navigator.bluetooth.requestDevice({
+      acceptAllDevices: true,
+      optionalServices: SERVICE_UUID_CANDIDATES
+    });
+
+    log("選択された機器: " + (device.name || "(名前なし)"));
+    device.addEventListener("gattserverdisconnected", onDisconnected);
+
+    status("接続中…");
+    server = await device.gatt.connect();
+    log("GATT接続成功");
+
+    // Enumerate services if possible.
+    const services = await server.getPrimaryServices();
+    log("Primary Services: " + services.length);
+
+    for (const service of services) {
+      log("Service: " + service.uuid);
+      try {
+        const chars = await service.getCharacteristics();
+        for (const ch of chars) {
+          log("  Characteristic: " + ch.uuid +
+              " properties=" + JSON.stringify(ch.properties));
+          if (!writable &&
+              (ch.properties.write || ch.properties.writeWithoutResponse)) {
+            writable = ch;
+            log("書き込み可能Characteristic候補を選択: " + ch.uuid);
+          }
+        }
+      } catch(e) {
+        log("Characteristic取得失敗: " + e.message);
+      }
+    }
+
+    status("接続成功：" + (device.name || "A10 Piston SA"));
+    $("disconnect").disabled = false;
+    controls(true);
+
+    if (writable) {
+      log("書き込み先候補あり。ただし通信コマンドは未確定のため送信していません。");
+    } else {
+      log("書き込み可能Characteristicが見つかりませんでした。");
+    }
+
+  } catch (e) {
+    status("接続失敗");
+    log("ERROR: " + e.name + " / " + e.message);
+  }
+}
+
+function onDisconnected() {
+  status("切断されました");
+  $("disconnect").disabled = true;
+  controls(false);
+  writable = null;
+  server = null;
+  log("GATT切断");
+}
+
+async function disconnect() {
+  try {
+    if (device && device.gatt.connected) device.gatt.disconnect();
+  } catch(e) {
+    log("切断エラー: " + e.message);
+  }
+  onDisconnected();
+}
+
+/*
+  IMPORTANT:
+  Do not send guessed bytes to a physical device.
+  This function is intentionally disabled until the exact A10 Piston SA
+  protocol is verified.
+*/
+async function sendCommand(name) {
+  log("操作要求: " + name);
+  log("現在は安全のためコマンド送信を無効化しています。");
+  log("次の段階で実機の正確なBLEプロトコルを確認して実装します。");
+}
+
+$("connect").addEventListener("click", connect);
+$("disconnect").addEventListener("click", disconnect);
+document.querySelectorAll("[data-cmd]").forEach(b => {
+  b.addEventListener("click", () => sendCommand(b.dataset.cmd));
+});
+</script>
+</body>
+</html>
