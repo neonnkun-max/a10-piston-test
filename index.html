@@ -3,25 +3,26 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>VorzePiston 接続テスト Step1</title>
+
+<title>VorzePiston Step2</title>
 
 <style>
 body{
-    font-family: Arial, sans-serif;
+    font-family:Arial,sans-serif;
     background:#f5f5f5;
     text-align:center;
-    margin-top:50px;
+    margin-top:40px;
 }
 
 button{
     font-size:20px;
     padding:15px 30px;
-    cursor:pointer;
 }
 
 #log{
     width:90%;
-    height:300px;
+    max-width:700px;
+    height:350px;
     margin:20px auto;
     border:1px solid #ccc;
     background:white;
@@ -36,27 +37,40 @@ button{
 
 <body>
 
-<h1>VorzePiston 接続テスト Step1</h1>
+<h1>VorzePiston Step2</h1>
 
 <button id="connect">
-Bluetooth接続
+VorzePistonに接続
 </button>
 
 <div id="log"></div>
 
 <script>
 
-const log = (text)=>{
-    document.getElementById("log").textContent += text + "\n";
-};
+const SERVICE_UUID =
+"40ee1111-63ec-4b7f-8ce7-712efd55b90e";
 
-document.getElementById("connect").onclick = async ()=>{
+const CHARACTERISTIC_UUID =
+"40ee2222-63ec-4b7f-8ce7-712efd55b90e";
+
+
+function log(text){
+
+    document.getElementById("log").textContent
+    += text + "\n";
+
+}
+
+
+document.getElementById("connect").onclick =
+async function(){
 
     try{
 
         log("Bluetooth機器の選択を開始");
 
-        const device = await navigator.bluetooth.requestDevice({
+        const device =
+        await navigator.bluetooth.requestDevice({
 
             filters:[
                 {
@@ -64,29 +78,84 @@ document.getElementById("connect").onclick = async ()=>{
                 }
             ],
 
-            optionalServices:[]
+            optionalServices:[
+                SERVICE_UUID
+            ]
+
         });
 
-        log("選択された機器 : " + device.name);
 
-        const server = await device.gatt.connect();
+        log("選択された機器: "
+            + device.name);
+
+
+        const server =
+        await device.gatt.connect();
+
 
         log("GATT接続成功");
 
-        log("Step1 完了");
+
+        log("サービスを取得中...");
+
+
+        const service =
+        await server.getPrimaryService(
+            SERVICE_UUID
+        );
+
+
+        log("サービス取得成功");
+
+
+        log("Service UUID:");
+        log(service.uuid);
+
+
+        log("Characteristicを取得中...");
+
+
+        const characteristic =
+        await service.getCharacteristic(
+            CHARACTERISTIC_UUID
+        );
+
+
+        log("Characteristic取得成功");
+
+
+        log("Characteristic UUID:");
+        log(characteristic.uuid);
+
+
+        log("Properties:");
+
+        log(
+            JSON.stringify(
+                characteristic.properties,
+                null,
+                2
+            )
+        );
+
+
+        log("");
+        log("================================");
+        log("STEP 2 完了");
+        log("================================");
+
 
     }
-    catch(e){
+    catch(error){
 
-        log("ERROR");
-
-        log(e.name);
-
-        log(e.message);
+        log("");
+        log("ERROR:");
+        log(error.name);
+        log(error.message);
 
     }
 
-}
+};
 
 </script>
 
