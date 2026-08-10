@@ -3,68 +3,135 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-
-<title>VorzePiston Step3</title>
+<title>VorzePiston Step4</title>
 
 <style>
-body{
-    font-family:Arial,sans-serif;
-    background:#f5f5f5;
-    text-align:center;
-    margin-top:40px;
+body {
+    font-family: Arial, sans-serif;
+    background: #f5f5f5;
+    margin: 0;
+    padding: 30px 15px;
+    text-align: center;
 }
 
-button{
-    font-size:18px;
-    padding:14px 24px;
-    margin:6px;
+.container {
+    max-width: 650px;
+    margin: auto;
+    background: white;
+    padding: 25px;
+    border-radius: 15px;
 }
 
-.test{
-    background:#222;
-    color:white;
+button {
+    font-size: 18px;
+    padding: 14px 22px;
+    margin: 6px;
+    border: none;
+    border-radius: 10px;
+    cursor: pointer;
 }
 
-.stop{
-    background:#c62828;
-    color:white;
+.connect {
+    background: #222;
+    color: white;
 }
 
-#log{
-    width:90%;
-    max-width:700px;
-    height:350px;
-    margin:20px auto;
-    border:1px solid #ccc;
-    background:white;
-    text-align:left;
-    overflow:auto;
-    padding:10px;
-    white-space:pre-wrap;
+.forward {
+    background: #1976d2;
+    color: white;
+}
+
+.reverse {
+    background: #7b1fa2;
+    color: white;
+}
+
+.stop {
+    background: #d32f2f;
+    color: white;
+}
+
+input[type="range"] {
+    width: 90%;
+    margin: 20px 0;
+}
+
+.speed {
+    font-size: 28px;
+    font-weight: bold;
+}
+
+#status {
+    padding: 12px;
+    background: #eee;
+    border-radius: 10px;
+    margin: 15px 0;
+}
+
+#log {
+    height: 250px;
+    overflow-y: auto;
+    background: #111;
+    color: #00ff00;
+    text-align: left;
+    padding: 12px;
+    white-space: pre-wrap;
+    border-radius: 10px;
 }
 </style>
-
 </head>
 
 <body>
 
-<h1>VorzePiston Step3</h1>
+<div class="container">
 
-<button id="connect">
+<h1>VorzePiston Step4</h1>
+
+<div id="status">
+未接続
+</div>
+
+<button class="connect" id="connect">
 VorzePistonに接続
 </button>
 
+<hr>
+
+<h2>速度</h2>
+
+<div class="speed">
+<span id="speedValue">20</span>
+</div>
+
+<input
+    type="range"
+    id="speed"
+    min="0"
+    max="100"
+    value="20"
+>
+
 <br>
 
-<button class="test" id="test">
-低速テスト送信
+<button class="forward" id="forward">
+正方向
 </button>
+
+<button class="reverse" id="reverse">
+逆方向
+</button>
+
+<br>
 
 <button class="stop" id="stop">
 停止
 </button>
 
+<h2>通信ログ</h2>
+
 <div id="log"></div>
+
+</div>
 
 <script>
 
@@ -78,31 +145,50 @@ let device = null;
 let server = null;
 let characteristic = null;
 
+const logElement =
+document.getElementById("log");
 
-function log(text){
+function log(message) {
 
-    document.getElementById("log").textContent
-    += text + "\n";
+    logElement.textContent +=
+        "[" +
+        new Date().toLocaleTimeString() +
+        "] " +
+        message +
+        "\n";
+
+    logElement.scrollTop =
+        logElement.scrollHeight;
+}
+
+function setStatus(message) {
+
+    document.getElementById("status")
+        .textContent = message;
 
 }
 
 
-async function connect(){
+/* =========================
+   Bluetooth接続
+========================= */
 
-    try{
+async function connect() {
+
+    try {
 
         log("Bluetooth機器の選択を開始");
 
         device =
         await navigator.bluetooth.requestDevice({
 
-            filters:[
+            filters: [
                 {
-                    name:"VorzePiston"
+                    name: "VorzePiston"
                 }
             ],
 
-            optionalServices:[
+            optionalServices: [
                 SERVICE_UUID
             ]
 
@@ -113,12 +199,10 @@ async function connect(){
             + device.name
         );
 
-
         server =
         await device.gatt.connect();
 
         log("GATT接続成功");
-
 
         const service =
         await server.getPrimaryService(
@@ -126,7 +210,6 @@ async function connect(){
         );
 
         log("サービス取得成功");
-
 
         characteristic =
         await service.getCharacteristic(
@@ -137,32 +220,60 @@ async function connect(){
             "Characteristic取得成功"
         );
 
-        log("");
-        log("接続準備完了");
+        setStatus(
+            "VorzePiston 接続中"
+        );
+
+        log(
+            "接続準備完了"
+        );
 
     }
 
-    catch(error){
+    catch(error) {
 
-        log("ERROR");
-        log(error.name);
-        log(error.message);
+        log(
+            "ERROR: "
+            + error.name
+            + " / "
+            + error.message
+        );
+
+        setStatus(
+            "接続エラー"
+        );
 
     }
 
 }
 
 
-async function sendCommand(value){
+/* =========================
+   コマンド送信
+========================= */
 
-    if(!characteristic){
+async function sendCommand(
+    value
+) {
 
-        log("先にVorzePistonへ接続してください");
+    if (!characteristic) {
+
+        log(
+            "VorzePistonに接続してください"
+        );
 
         return;
 
     }
 
+    value =
+        Math.max(
+            0,
+            Math.min(
+                100,
+                Number(value)
+            )
+        );
 
     const packet =
     new Uint8Array([
@@ -171,63 +282,83 @@ async function sendCommand(value){
         value
     ]);
 
+    try {
 
-    log(
-        "送信: "
-        +
-        Array.from(packet)
-        .map(
-            x =>
-            "0x"
+        if (
+            characteristic
+            .properties
+            .writeWithoutResponse
+        ) {
+
+            await characteristic
+                .writeValueWithoutResponse(
+                    packet
+                );
+
+        }
+
+        else {
+
+            await characteristic
+                .writeValue(
+                    packet
+                );
+
+        }
+
+        log(
+            "送信: "
             +
-            x
-            .toString(16)
-            .padStart(2,"0")
-        )
-        .join(" ")
-    );
-
-
-    try{
-
-        if(
-            "writeValueWithoutResponse"
-            in characteristic
-        ){
-
-            await characteristic
-            .writeValueWithoutResponse(
-                packet
-            );
-
-        }
-
-        else{
-
-            await characteristic
-            .writeValue(
-                packet
-            );
-
-        }
-
-
-        log("送信成功");
+            Array.from(packet)
+                .map(
+                    x =>
+                    "0x"
+                    +
+                    x
+                    .toString(16)
+                    .padStart(2, "0")
+                )
+                .join(" ")
+        );
 
     }
 
-    catch(error){
+    catch(error) {
 
-        log("送信ERROR");
-
-        log(error.name);
-
-        log(error.message);
+        log(
+            "送信ERROR: "
+            + error.name
+            + " / "
+            + error.message
+        );
 
     }
 
 }
 
+
+/* =========================
+   速度スライダー
+========================= */
+
+const speedSlider =
+document.getElementById("speed");
+
+const speedValue =
+document.getElementById("speedValue");
+
+speedSlider.oninput =
+function() {
+
+    speedValue.textContent =
+        this.value;
+
+};
+
+
+/* =========================
+   ボタン
+========================= */
 
 document
 .getElementById("connect")
@@ -236,28 +367,35 @@ connect;
 
 
 document
-.getElementById("test")
+.getElementById("forward")
 .onclick =
-async function(){
+function() {
 
-    /*
-     * Piston SA
-     * Device ID = 0x03
-     *
-     * まず初期化値 0x00
-     */
-    await sendCommand(0x00);
-
-    await new Promise(
-        resolve =>
-        setTimeout(resolve,300)
+    sendCommand(
+        speedSlider.value
     );
 
+};
+
+
+document
+.getElementById("reverse")
+.onclick =
+function() {
 
     /*
-     * 低い値を1回送信
-     */
-    await sendCommand(0x14);
+       逆方向フラグ
+       0x80を付加
+    */
+
+    const speed =
+        Number(
+            speedSlider.value
+        );
+
+    sendCommand(
+        0x80 | speed
+    );
 
 };
 
@@ -265,12 +403,9 @@ async function(){
 document
 .getElementById("stop")
 .onclick =
-async function(){
+function() {
 
-    /*
-     * 0x00 = 停止候補
-     */
-    await sendCommand(0x00);
+    sendCommand(0);
 
 };
 
