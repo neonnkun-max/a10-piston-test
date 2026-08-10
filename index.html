@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 
-<title>VorzePiston Step2</title>
+<title>VorzePiston Step3</title>
 
 <style>
 body{
@@ -15,8 +15,19 @@ body{
 }
 
 button{
-    font-size:20px;
-    padding:15px 30px;
+    font-size:18px;
+    padding:14px 24px;
+    margin:6px;
+}
+
+.test{
+    background:#222;
+    color:white;
+}
+
+.stop{
+    background:#c62828;
+    color:white;
 }
 
 #log{
@@ -37,10 +48,20 @@ button{
 
 <body>
 
-<h1>VorzePiston Step2</h1>
+<h1>VorzePiston Step3</h1>
 
 <button id="connect">
 VorzePistonに接続
+</button>
+
+<br>
+
+<button class="test" id="test">
+低速テスト送信
+</button>
+
+<button class="stop" id="stop">
+停止
 </button>
 
 <div id="log"></div>
@@ -53,6 +74,10 @@ const SERVICE_UUID =
 const CHARACTERISTIC_UUID =
 "40ee2222-63ec-4b7f-8ce7-712efd55b90e";
 
+let device = null;
+let server = null;
+let characteristic = null;
+
 
 function log(text){
 
@@ -62,14 +87,13 @@ function log(text){
 }
 
 
-document.getElementById("connect").onclick =
-async function(){
+async function connect(){
 
     try{
 
         log("Bluetooth機器の選択を開始");
 
-        const device =
+        device =
         await navigator.bluetooth.requestDevice({
 
             filters:[
@@ -84,19 +108,16 @@ async function(){
 
         });
 
+        log(
+            "選択された機器: "
+            + device.name
+        );
 
-        log("選択された機器: "
-            + device.name);
 
-
-        const server =
+        server =
         await device.gatt.connect();
 
-
         log("GATT接続成功");
-
-
-        log("サービスを取得中...");
 
 
         const service =
@@ -104,56 +125,152 @@ async function(){
             SERVICE_UUID
         );
 
-
         log("サービス取得成功");
 
 
-        log("Service UUID:");
-        log(service.uuid);
-
-
-        log("Characteristicを取得中...");
-
-
-        const characteristic =
+        characteristic =
         await service.getCharacteristic(
             CHARACTERISTIC_UUID
         );
 
-
-        log("Characteristic取得成功");
-
-
-        log("Characteristic UUID:");
-        log(characteristic.uuid);
-
-
-        log("Properties:");
-
         log(
-            JSON.stringify(
-                characteristic.properties,
-                null,
-                2
-            )
+            "Characteristic取得成功"
         );
 
-
         log("");
-        log("================================");
-        log("STEP 2 完了");
-        log("================================");
-
+        log("接続準備完了");
 
     }
+
     catch(error){
 
-        log("");
-        log("ERROR:");
+        log("ERROR");
         log(error.name);
         log(error.message);
 
     }
+
+}
+
+
+async function sendCommand(value){
+
+    if(!characteristic){
+
+        log("先にVorzePistonへ接続してください");
+
+        return;
+
+    }
+
+
+    const packet =
+    new Uint8Array([
+        0x03,
+        0x01,
+        value
+    ]);
+
+
+    log(
+        "送信: "
+        +
+        Array.from(packet)
+        .map(
+            x =>
+            "0x"
+            +
+            x
+            .toString(16)
+            .padStart(2,"0")
+        )
+        .join(" ")
+    );
+
+
+    try{
+
+        if(
+            "writeValueWithoutResponse"
+            in characteristic
+        ){
+
+            await characteristic
+            .writeValueWithoutResponse(
+                packet
+            );
+
+        }
+
+        else{
+
+            await characteristic
+            .writeValue(
+                packet
+            );
+
+        }
+
+
+        log("送信成功");
+
+    }
+
+    catch(error){
+
+        log("送信ERROR");
+
+        log(error.name);
+
+        log(error.message);
+
+    }
+
+}
+
+
+document
+.getElementById("connect")
+.onclick =
+connect;
+
+
+document
+.getElementById("test")
+.onclick =
+async function(){
+
+    /*
+     * Piston SA
+     * Device ID = 0x03
+     *
+     * まず初期化値 0x00
+     */
+    await sendCommand(0x00);
+
+    await new Promise(
+        resolve =>
+        setTimeout(resolve,300)
+    );
+
+
+    /*
+     * 低い値を1回送信
+     */
+    await sendCommand(0x14);
+
+};
+
+
+document
+.getElementById("stop")
+.onclick =
+async function(){
+
+    /*
+     * 0x00 = 停止候補
+     */
+    await sendCommand(0x00);
 
 };
 
