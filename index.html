@@ -1,268 +1,237 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="ja">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-<title>VorzePiston Funscript Player</title>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>VorzePiston Funscript Player iPhone</title>
 <style>
-body{font-family:Arial,sans-serif;background:#f5f5f5;margin:0;padding:20px;text-align:center}
-.box{max-width:820px;margin:auto;background:#fff;padding:24px;border-radius:15px}
-button{font-size:17px;padding:12px 18px;margin:5px;border:0;border-radius:10px;cursor:pointer}
-.connect{background:#222;color:#fff}.play{background:#1976d2;color:#fff}
-.pause{background:#f57c00;color:#fff}.stop{background:#d32f2f;color:#fff}
-.seekbtn{background:#555;color:#fff}
-input[type=file]{margin:15px 0;font-size:16px;max-width:100%}
+body{font-family:Arial,sans-serif;background:#f5f5f5;margin:0;padding:18px;text-align:center}
+main{max-width:820px;margin:auto;background:#fff;padding:22px;border-radius:15px}
+button{font-size:17px;padding:12px 17px;margin:5px;border:0;border-radius:10px}
+.connect{background:#222;color:#fff}.play{background:#1976d2;color:#fff}.pause{background:#f57c00;color:#fff}.stop{background:#d32f2f;color:#fff}.seekbtn{background:#555;color:#fff}
+input[type=file]{font-size:16px;max-width:100%;margin:12px 0}
 input[type=range]{width:100%}
-#status{background:#eee;padding:12px;border-radius:10px;margin:15px 0;white-space:pre-wrap}
-#info,#detail{text-align:left;background:#fafafa;padding:12px;border-radius:10px;margin-top:10px;white-space:pre-wrap}
-#time{font-size:19px;margin:12px}
-#bar{height:14px;background:#ddd;border-radius:7px;overflow:hidden}
-#fill{height:100%;width:0;background:#1976d2}
-#log{height:220px;background:#111;color:#00ff00;text-align:left;overflow:auto;padding:12px;white-space:pre-wrap;box-sizing:border-box;border-radius:10px;font-family:monospace;font-size:12px}
+#status,#info,#action{background:#eee;padding:11px;border-radius:10px;margin:10px 0;white-space:pre-wrap}
+#time{font-size:20px;margin:10px}
+#log{height:260px;overflow:auto;background:#111;color:#0f0;text-align:left;padding:10px;white-space:pre-wrap;border-radius:10px;font:12px monospace}
 </style>
 </head>
-<body>
-<div class="box">
+<body><main>
 <h1>VorzePiston Funscript Player</h1>
+<button id="connect" class="connect">VorzePistonに接続</button><br>
 
-<button class="connect" id="connect">VorzePistonに接続</button>
-
-<!-- acceptを指定しない。iPhone/Bluefyで.funscriptがグレーになる問題を回避 -->
-<br><input type="file" id="file">
+<!-- iPhone/Bluefyで.funscriptを選択できるようacceptを付けない -->
+<input id="file" type="file">
 <div id="info">ファイル未選択</div>
-
 <div id="status">未接続</div>
-<div id="detail">接続先: なし</div>
 
 <div id="time">00:00.000 / 00:00.000</div>
-<input type="range" id="seek" min="0" max="0" value="0" step="1">
+<input id="seek" type="range" min="0" max="0" value="0" step="1">
 
-<div>
-<button class="seekbtn" id="back">⏪ 10秒</button>
-<button class="play" id="play">▶ 再生</button>
-<button class="pause" id="pause">⏸ 一時停止</button>
-<button class="stop" id="stop">⏹ 停止</button>
-<button class="seekbtn" id="forward">10秒 ⏩</button>
-</div>
+<button id="back" class="seekbtn">⏪ 10秒</button>
+<button id="play" class="play">▶ 再生</button>
+<button id="pause" class="pause">⏸ 一時停止</button>
+<button id="stop" class="stop">⏹ 停止</button>
+<button id="forward" class="seekbtn">10秒 ⏩</button>
 
-<div id="bar"><div id="fill"></div></div>
-<p id="actionInfo">アクション: -</p>
+<div id="action">アクション: -</div>
 
 <h3>ログ</h3>
 <div id="log"></div>
-</div>
+</main>
 
 <script>
 const SERVICE_UUID="40ee1111-63ec-4b7f-8ce7-712efd55b90e";
 const CHARACTERISTIC_UUID="40ee2222-63ec-4b7f-8ce7-712efd55b90e";
+const DEVICE_ID=0x03;
 
-let device=null,server=null,service=null,characteristic=null;
-let actions=[],duration=0,currentTime=0;
-let playing=false,playStartedAt=0,playBaseTime=0;
-let uiTimer=null,sendTimer=null,lastSentPosition=null,lastActionIndex=-1;
-let sending=false,pendingPosition=null;
+let device=null, characteristic=null;
+let actions=[], duration=0;
+let currentTime=0, currentIndex=0;
+let playing=false, timer=null, startedAt=0, baseTime=0;
+let writeChain=Promise.resolve();
 
 const $=id=>document.getElementById(id);
-
-function log(s){
- const t=new Date().toLocaleTimeString();
- $("log").textContent+=`[${t}] ${s}\n`;
- $("log").scrollTop=$("log").scrollHeight;
-}
-function status(s){$("status").textContent=s;log(s)}
-function fmt(ms){
- ms=Math.max(0,ms||0);let x=Math.floor(ms/1000);
- let m=Math.floor(x/60),s=x%60,mi=Math.floor(ms%1000);
- return `${String(m).padStart(2,"0")}:${String(s).padStart(2,"0")}.${String(mi).padStart(3,"0")}`;
-}
+const log=s=>{
+ const e=$("log");
+ e.textContent+="["+new Date().toLocaleTimeString()+"] "+s+"\n";
+ e.scrollTop=e.scrollHeight;
+};
+const fmt=ms=>{
+ ms=Math.max(0,Math.round(ms||0));
+ const m=Math.floor(ms/60000),s=Math.floor(ms%60000/1000),x=ms%1000;
+ return String(m).padStart(2,"0")+":"+String(s).padStart(2,"0")+"."+String(x).padStart(3,"0");
+};
+function total(){return duration}
 function updateUI(){
- $("seek").max=duration||0;
- $("seek").value=Math.min(currentTime,duration||0);
- $("time").textContent=`${fmt(currentTime)} / ${fmt(duration)}`;
- $("fill").style.width=duration?`${Math.min(100,currentTime/duration*100)}%`:"0%";
+ $("time").textContent=fmt(currentTime)+" / "+fmt(duration);
+ $("seek").max=duration;
+ $("seek").value=Math.min(currentTime,duration);
 }
-function findIndex(t){
- let lo=0,hi=actions.length-1,ans=-1;
- while(lo<=hi){
+function findFirstAtOrAfter(t){
+ let lo=0,hi=actions.length;
+ while(lo<hi){
   const mid=(lo+hi)>>1;
-  if(actions[mid].at<=t){ans=mid;lo=mid+1}else hi=mid-1;
+  if(actions[mid].at<t)lo=mid+1; else hi=mid;
  }
- return ans;
+ return lo;
 }
 
-/* ここはPCで確認済みのVorzePiston送信形式を維持 */
-async function rawWrite(pos){
- if(!characteristic)return false;
- const p=Math.max(0,Math.min(100,Math.round(pos)));
- const data=new Uint8Array([0x03,0x01,p]);
- try{
-  await characteristic.writeValue(data);
-  log(`送信成功: 03 01 ${p.toString(16).padStart(2,"0")} pos=${p}`);
-  return true;
- }catch(e){
-  log(`送信失敗: ${e.name} / ${e.message}`);
-  return false;
- }
+/* 実機で連続動作した形式: 03 [position 0..200] [speed 0..100] */
+function calcSpeed(distance,dt){
+ if(distance<=0)return 100;
+ dt=Math.max(20,dt);
+ const d=Math.min(Math.abs(distance),200);
+ const scaled=200*dt/d;
+ let speed=Math.pow(scaled/6658,-1.21);
+ return Math.max(1,Math.min(100,Math.round(speed)));
+}
+async function writeCommand(position,speed){
+ if(!characteristic)return;
+ position=Math.max(0,Math.min(200,Math.round(position)));
+ speed=Math.max(0,Math.min(100,Math.round(speed)));
+ const packet=new Uint8Array([DEVICE_ID,position,speed]);
+ await characteristic.writeValue(packet);
+ log("送信 position="+position+" speed="+speed+
+     " [03 "+position.toString(16).padStart(2,"0")+" "+speed.toString(16).padStart(2,"0")+"]");
+}
+/* write=trueのCharacteristicなので、書き込み同士が重ならないよう直列化 */
+function queueCommand(position,speed){
+ writeChain=writeChain.then(()=>writeCommand(position,speed)).catch(e=>{
+  log("送信ERROR: "+e.name+" / "+e.message);
+ });
+ return writeChain;
 }
 
-/*
- * 送信を再生タイミングと分離。
- * writeValueの約70ms待ちで再生自体が遅れるのを防ぐ。
- * Bluetooth送信中に新しい位置が来たら、古い位置を捨てて最新値だけ送る。
- */
-async function requestPosition(pos){
- pendingPosition=Math.max(0,Math.min(100,Math.round(pos)));
- if(sending)return;
- sending=true;
- try{
-  while(pendingPosition!==null){
-   const p=pendingPosition;
-   pendingPosition=null;
-   if(p===lastSentPosition)continue;
-   await rawWrite(p);
-   lastSentPosition=p;
-  }
- }finally{
-  sending=false;
- }
-}
-
-async function connectPiston(){
+$("connect").onclick=async()=>{
  try{
   log("Bluetooth機器の選択を開始");
   device=await navigator.bluetooth.requestDevice({
    filters:[{name:"VorzePiston"}],
    optionalServices:[SERVICE_UUID]
   });
-  log(`選択された機器: ${device.name}`);
-  server=await device.gatt.connect();
+  log("選択: "+device.name);
+  const server=await device.gatt.connect();
   log("GATT接続成功");
-  service=await server.getPrimaryService(SERVICE_UUID);
+  const service=await server.getPrimaryService(SERVICE_UUID);
   log("サービス取得成功");
   characteristic=await service.getCharacteristic(CHARACTERISTIC_UUID);
   log("Characteristic取得成功");
-  log(`write=${!!characteristic.properties.write}, writeWithoutResponse=${!!characteristic.properties.writeWithoutResponse}`);
-  $("detail").textContent=
-   `接続先: ${device.name}\nService UUID: ${SERVICE_UUID}\nCharacteristic UUID: ${CHARACTERISTIC_UUID}`;
-  status("接続準備完了");
-  device.addEventListener("gattserverdisconnected",()=>{
-   characteristic=null;playing=false;clearInterval(uiTimer);clearInterval(sendTimer);
-   status("Bluetooth切断");
-  });
+  log("write="+!!characteristic.properties.write+
+      " writeWithoutResponse="+!!characteristic.properties.writeWithoutResponse);
+  $("status").textContent="接続成功";
  }catch(e){
-  log(`ERROR: ${e.name} / ${e.message}`);
-  status("接続失敗");
+  log("接続ERROR: "+e.name+" / "+e.message);
+  $("status").textContent="接続失敗";
  }
-}
-$("connect").onclick=async()=>{
- if(!navigator.bluetooth){alert("Web Bluetooth非対応です。iPhoneではBluefyを使用してください。");return}
- await connectPiston();
 };
 
-/* iPhone/Bluefy用。acceptを使わず、JavaScriptでJSONとして判定 */
-$("file").addEventListener("change",async e=>{
- const file=e.target.files&&e.target.files[0];
- if(!file)return;
- log(`ファイル読み込み: ${file.name}`);
+$("file").onchange=async e=>{
+ const f=e.target.files&&e.target.files[0];
+ if(!f)return;
  try{
-  const text=await file.text();
-  const data=JSON.parse(text);
-  if(!Array.isArray(data.actions))throw new Error("actionsが見つかりません");
+  const data=JSON.parse(await f.text());
+  if(!Array.isArray(data.actions))throw new Error("actionsがありません");
   actions=data.actions
-   .filter(a=>a&&Number.isFinite(Number(a.at))&&Number.isFinite(Number(a.pos)))
+   .filter(a=>Number.isFinite(Number(a.at))&&Number.isFinite(Number(a.pos)))
    .map(a=>({at:Number(a.at),pos:Math.max(0,Math.min(100,Number(a.pos)))}))
    .sort((a,b)=>a.at-b.at);
-  duration=actions.length?actions[actions.length-1].at:0;
-  currentTime=0;lastActionIndex=-1;lastSentPosition=null;
-  $("info").textContent=`ファイル: ${file.name}\nアクション数: ${actions.length}\n最終時刻: ${fmt(duration)}`;
+  if(!actions.length)throw new Error("有効なactionがありません");
+  duration=actions[actions.length-1].at;
+  currentTime=0;currentIndex=0;
+  $("info").textContent="ファイル: "+f.name+"\nアクション数: "+actions.length+"\n再生時間: "+fmt(duration);
   updateUI();
-  log("Funscript読み込み成功");
-  log(`アクション数: ${actions.length}`);
-  log(`最終時刻: ${duration} ms`);
+  log("Funscript読み込み成功: "+actions.length+" actions");
  }catch(e){
+  log("読み込みERROR: "+e.message);
   $("info").textContent="読み込み失敗";
-  log(`Funscript読み込み失敗: ${e.message}`);
-  alert("Funscriptを読み込めませんでした。");
  }
-});
+};
 
-function startLoops(){
- clearInterval(uiTimer);clearInterval(sendTimer);
- /*
-  * 再生時計はBluetoothとは独立して動かす。
-  * 10ms間隔でFunscript上の現在位置を確認する。
-  */
- uiTimer=setInterval(()=>{
-  if(!playing)return;
-  currentTime=playBaseTime+(performance.now()-playStartedAt);
-  if(currentTime>=duration){
-   currentTime=duration;
-   updateUI();
-   stopPlayback();
-   return;
-  }
-  updateUI();
-
-  const idx=findIndex(currentTime);
-  if(idx>=0 && idx!==lastActionIndex){
-   lastActionIndex=idx;
-   const a=actions[idx];
-   requestPosition(a.pos);
-   $("actionInfo").textContent=`アクション: ${idx+1} / ${actions.length}   位置: ${a.pos}   時刻: ${fmt(a.at)}`;
-  }
- },10);
-}
-
-function startPlayback(){
- if(!actions.length){alert("先にFunscriptファイルを選択してください。");return}
- if(!characteristic){alert("先にVorzePistonへ接続してください。");return}
- if(currentTime>=duration)currentTime=0;
- playing=true;
- playBaseTime=currentTime;
- playStartedAt=performance.now();
- log(`再生開始: ${fmt(currentTime)}`);
- startLoops();
-}
-function pausePlayback(){
+function scheduleNext(){
  if(!playing)return;
- currentTime=playBaseTime+(performance.now()-playStartedAt);
+
+ currentTime=Math.min(duration,baseTime+(performance.now()-startedAt));
+ updateUI();
+
+ /* 現在時刻までに到達したactionを順番に処理 */
+ while(currentIndex<actions.length && actions[currentIndex].at<=currentTime){
+  const a=actions[currentIndex];
+  const prev=currentIndex>0?actions[currentIndex-1]:a;
+  const pistonPos=Math.round(a.pos*2);       // 0..100 -> 0..200
+  const prevPos=Math.round(prev.pos*2);
+  const dt=currentIndex>0?Math.max(20,a.at-prev.at):1000;
+  const speed=calcSpeed(Math.abs(pistonPos-prevPos),dt);
+
+  queueCommand(pistonPos,speed);
+  $("action").textContent=
+    "アクション: "+(currentIndex+1)+" / "+actions.length+
+    "  pos="+a.pos+" → piston="+pistonPos+
+    "  speed="+speed;
+
+  currentIndex++;
+ }
+
+ if(currentTime>=duration){
+  playing=false;
+  clearTimeout(timer);
+  timer=null;
+  log("再生完了");
+  return;
+ }
+
+ timer=setTimeout(scheduleNext,10);
+}
+
+$("play").onclick=()=>{
+ if(!characteristic){alert("先にVorzePistonへ接続してください。");return}
+ if(!actions.length){alert("先にFunscriptを選択してください。");return}
+ if(playing)return;
+ if(currentTime>=duration)currentTime=0;
+
+ currentIndex=findFirstAtOrAfter(currentTime);
+ baseTime=currentTime;
+ startedAt=performance.now();
+ playing=true;
+ log("再生開始: "+fmt(currentTime));
+ scheduleNext();
+};
+
+$("pause").onclick=()=>{
+ if(!playing)return;
+ currentTime=Math.min(duration,baseTime+(performance.now()-startedAt));
  playing=false;
- clearInterval(uiTimer);
+ clearTimeout(timer);timer=null;
  updateUI();
- log(`一時停止: ${fmt(currentTime)}`);
+ log("一時停止: "+fmt(currentTime));
+};
+
+async function seekTo(t){
+ const was=playing;
+ if(was){
+  currentTime=Math.min(duration,baseTime+(performance.now()-startedAt));
+  playing=false;clearTimeout(timer);timer=null;
+ }
+ currentTime=Math.max(0,Math.min(duration,t));
+ currentIndex=findFirstAtOrAfter(currentTime);
+ updateUI();
+ log("シーク: "+fmt(currentTime));
+ if(was){
+  baseTime=currentTime;startedAt=performance.now();playing=true;scheduleNext();
+ }
 }
-async function stopPlayback(){
- playing=false;clearInterval(uiTimer);
- currentTime=0;lastActionIndex=-1;updateUI();
- if(characteristic)await requestPosition(0);
+$("back").onclick=()=>seekTo(currentTime-10000);
+$("forward").onclick=()=>seekTo(currentTime+10000);
+$("seek").onchange=()=>seekTo(Number($("seek").value));
+
+$("stop").onclick=async()=>{
+ playing=false;clearTimeout(timer);timer=null;
+ currentTime=0;currentIndex=0;updateUI();
+ /* 動作確認済みテストと同じ形式で端位置へ送る */
+ if(characteristic)await queueCommand(0,100);
  log("停止");
-}
+};
 
-$("play").onclick=startPlayback;
-$("pause").onclick=pausePlayback;
-$("stop").onclick=stopPlayback;
-
-$("back").onclick=()=>{
- const was=playing;if(was)pausePlayback();
- currentTime=Math.max(0,currentTime-10000);
- lastActionIndex=findIndex(currentTime)-1;updateUI();
- log(`10秒戻る: ${fmt(currentTime)}`);
- if(was)startPlayback();
-};
-$("forward").onclick=()=>{
- const was=playing;if(was)pausePlayback();
- currentTime=Math.min(duration,currentTime+10000);
- lastActionIndex=findIndex(currentTime)-1;updateUI();
- log(`10秒進む: ${fmt(currentTime)}`);
- if(was)startPlayback();
-};
-$("seek").oninput=()=>{
- const was=playing;if(was)pausePlayback();
- currentTime=Number($("seek").value);
- lastActionIndex=findIndex(currentTime)-1;
- updateUI();
- if(was)startPlayback();
-};
 updateUI();
 </script>
 </body>
