@@ -3,14 +3,14 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>VorzePiston Step4</title>
+<title>VorzePiston Step4 改良版</title>
 
 <style>
 body {
     font-family: Arial, sans-serif;
     background: #f5f5f5;
     margin: 0;
-    padding: 30px 15px;
+    padding: 20px;
     text-align: center;
 }
 
@@ -53,12 +53,12 @@ button {
 
 input[type="range"] {
     width: 90%;
-    margin: 20px 0;
 }
 
 .speed {
-    font-size: 28px;
+    font-size: 32px;
     font-weight: bold;
+    margin: 15px;
 }
 
 #status {
@@ -87,9 +87,7 @@ input[type="range"] {
 
 <h1>VorzePiston Step4</h1>
 
-<div id="status">
-未接続
-</div>
+<div id="status">未接続</div>
 
 <button class="connect" id="connect">
 VorzePistonに接続
@@ -100,7 +98,7 @@ VorzePistonに接続
 <h2>速度</h2>
 
 <div class="speed">
-<span id="speedValue">20</span>
+<span id="speedValue">50</span>
 </div>
 
 <input
@@ -108,7 +106,7 @@ VorzePistonに接続
     id="speed"
     min="0"
     max="100"
-    value="20"
+    value="50"
 >
 
 <br>
@@ -127,7 +125,7 @@ VorzePistonに接続
 停止
 </button>
 
-<h2>通信ログ</h2>
+<h2>ログ</h2>
 
 <div id="log"></div>
 
@@ -170,7 +168,7 @@ function setStatus(message) {
 
 
 /* =========================
-   Bluetooth接続
+   接続
 ========================= */
 
 async function connect() {
@@ -216,17 +214,9 @@ async function connect() {
             CHARACTERISTIC_UUID
         );
 
-        log(
-            "Characteristic取得成功"
-        );
+        log("Characteristic取得成功");
 
-        setStatus(
-            "VorzePiston 接続中"
-        );
-
-        log(
-            "接続準備完了"
-        );
+        setStatus("接続成功");
 
     }
 
@@ -239,9 +229,7 @@ async function connect() {
             + error.message
         );
 
-        setStatus(
-            "接続エラー"
-        );
+        setStatus("接続エラー");
 
     }
 
@@ -249,44 +237,67 @@ async function connect() {
 
 
 /* =========================
+   Vorze Piston SA
    コマンド送信
 ========================= */
 
 async function sendCommand(
-    value
+    direction,
+    speed
 ) {
 
     if (!characteristic) {
 
-        log(
-            "VorzePistonに接続してください"
-        );
+        log("先に接続してください");
 
         return;
 
     }
 
-    value =
+    speed = Number(speed);
+
+    speed =
         Math.max(
             0,
             Math.min(
                 100,
-                Number(value)
+                speed
             )
         );
+
+
+    /*
+       Vorze Piston SA
+
+       Byte 0 = 0x03
+       Byte 1 = 0x01
+       Byte 2 = direction + speed
+
+       direction:
+       0 = 正方向
+       1 = 逆方向
+    */
+
+    let directionBit =
+        direction ? 0x80 : 0x00;
+
+
+    let thirdByte =
+        directionBit | speed;
+
 
     const packet =
     new Uint8Array([
         0x03,
         0x01,
-        value
+        thirdByte
     ]);
+
 
     try {
 
         if (
-            characteristic
-            .properties
+            characteristic.properties
             .writeWithoutResponse
         ) {
 
@@ -306,6 +317,7 @@ async function sendCommand(
 
         }
 
+
         log(
             "送信: "
             +
@@ -316,7 +328,7 @@ async function sendCommand(
                     +
                     x
                     .toString(16)
-                    .padStart(2, "0")
+                    .padStart(2,"0")
                 )
                 .join(" ")
         );
@@ -327,9 +339,12 @@ async function sendCommand(
 
         log(
             "送信ERROR: "
-            + error.name
-            + " / "
-            + error.message
+            +
+            error.name
+            +
+            " / "
+            +
+            error.message
         );
 
     }
@@ -338,7 +353,7 @@ async function sendCommand(
 
 
 /* =========================
-   速度スライダー
+   スライダー
 ========================= */
 
 const speedSlider =
@@ -347,13 +362,15 @@ document.getElementById("speed");
 const speedValue =
 document.getElementById("speedValue");
 
-speedSlider.oninput =
-function() {
+speedSlider.addEventListener(
+    "input",
+    function() {
 
-    speedValue.textContent =
-        this.value;
+        speedValue.textContent =
+            this.value;
 
-};
+    }
+);
 
 
 /* =========================
@@ -362,52 +379,61 @@ function() {
 
 document
 .getElementById("connect")
-.onclick =
-connect;
+.addEventListener(
+    "click",
+    connect
+);
 
+
+/* 正方向 */
 
 document
 .getElementById("forward")
-.onclick =
-function() {
+.addEventListener(
+    "click",
+    function() {
 
-    sendCommand(
-        speedSlider.value
-    );
-
-};
-
-
-document
-.getElementById("reverse")
-.onclick =
-function() {
-
-    /*
-       逆方向フラグ
-       0x80を付加
-    */
-
-    const speed =
-        Number(
+        sendCommand(
+            false,
             speedSlider.value
         );
 
-    sendCommand(
-        0x80 | speed
-    );
+    }
+);
 
-};
 
+/* 逆方向 */
+
+document
+.getElementById("reverse")
+.addEventListener(
+    "click",
+    function() {
+
+        sendCommand(
+            true,
+            speedSlider.value
+        );
+
+    }
+);
+
+
+/* 停止 */
 
 document
 .getElementById("stop")
-.onclick =
-function() {
+.addEventListener(
+    "click",
+    function() {
 
-    sendCommand(0);
+        sendCommand(
+            false,
+            0
+        );
 
-};
+    }
+);
 
 </script>
 
